@@ -134,10 +134,10 @@ obsloop: do    ! no end limit - have the loop break when input ends
 
    if (debug) print *, 'next observation type = ', otype
 
-   ! for this example, assume there is an obs type, where otype=1 is
+   ! for this example, assume there is an obs type, where otype=71 is
    ! abs humidity, the input text file has these as their own hardcoded convention.
 
-   if (otype == 1) then !abs_humidity
+   if (otype == 71) then !abs_humidity
       read(input_line, *, iostat=rcio) otype, lat, lon, vert, &
                                  year, month, day, hour, minute, second, &
                                  abs_humid, terr
@@ -167,9 +167,9 @@ obsloop: do    ! no end limit - have the loop break when input ends
    ! extract time of observation into gregorian day, sec.
    call get_time(time_obs, osec, oday)
 
-   ! this example assumes there is an obs type, where otype=1 is
+   ! this example assumes there is an obs type, where otype=71 is
    ! abs_humidity measured in height
-   if (otype == 1) then !abs_humidity
+   if (otype == 71) then !abs_humidity
 
       ! height is in meters
       ! make an obs derived type, and then add it to the sequence
