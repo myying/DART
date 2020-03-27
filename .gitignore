@@ -90,3 +90,9 @@ system_simulation
 !system_simulation/
 !wakeup_filter/
 
+###mpd_da_exp ignore compiled files
+mpi_utilities_mod.f90
+null_mpi_utilities_mod.f90
+models/wrf/work/
+
+
