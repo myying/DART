@@ -6,44 +6,20 @@
 #
 # DART $Id$
 
-
 # init_ensemble_var.csh - script that creates perturbed initial
 #                         conditions from the WRF-VAR system.
 #                         (perts are drawn from the perturbation bank)
 #
 # created Nov. 2007, Ryan Torn NCAR/MMM
 # modified by G. Romine 2011-2018
+### Cleaned up by Michael Ying 2019
 
 set initial_date = ${1}
-set paramfile = `readlink -f ${2}` # Get absolute path for param.csh from command line arg
+set paramfile    = ${2}
 source $paramfile
 
-cd ${RUN_DIR}
-
-# KRF Generate the i/o lists in rundir automatically when initializing the ensemble
-set num_ens = ${NUM_ENS}
-set input_file_name  = "input_list_d01.txt"
-set input_file_path  = "./advance_temp"
-set output_file_name = "output_list_d01.txt"
-
-set n = 1
-
-if ( -e $input_file_name )  rm $input_file_name
-if ( -e $output_file_name ) rm $output_file_name
-
-while ($n <= $num_ens)
-
-   set     ensstring = `printf %04d $n`
-   set  in_file_name = ${input_file_path}${n}"/wrfinput_d01"
-   set out_file_name = "filter_restart_d01."$ensstring
-
-   echo $in_file_name  >> $input_file_name
-   echo $out_file_name >> $output_file_name
-
-   @ n++
-end
-###
-
+## get dates
+cd ${TEMPLATE_DIR}
 set gdate  = (`echo $initial_date 0h -g | ${DART_DIR}/models/wrf/work/advance_time`)
 set gdatef = (`echo $initial_date ${ASSIM_INT_HOURS}h -g | ${DART_DIR}/models/wrf/work/advance_time`)
 set wdate  =  `echo $initial_date 0h -w | ${DART_DIR}/models/wrf/work/advance_time`
@@ -52,80 +28,64 @@ set mm     = `echo $initial_date | cut -b5-6`
 set dd     = `echo $initial_date | cut -b7-8`
 set hh     = `echo $initial_date | cut -b9-10`
 
-${COPY} ${TEMPLATE_DIR}/namelist.input.meso namelist.input
-${COPY} ${TEMPLATE_DIR}/input.nml.template input.nml
+mkdir -p $RUN_DIR
+cd $RUN_DIR
+
 ${REMOVE} ${RUN_DIR}/WRF
 ${LINK} ${OUTPUT_DIR}/${initial_date} WRF
 
 set n = 1
 while ( $n <= $NUM_ENS )
 
-   echo "  QUEUEING ENSEMBLE MEMBER $n at `date`"
+  echo "  STARTING ENSEMBLE MEMBER $n"
 
-   mkdir -p ${RUN_DIR}/advance_temp${n}
+  set ensstring = `echo $n + 10000 | bc | cut -c2-5`
+  mkdir -p ${RUN_DIR}/advance_temp${n}
+  cd ${RUN_DIR}/advance_temp${n}
 
-   # TJH why does the run_dir/*/input.nml come from the template_dir and not the rundir?
-   # TJH furthermore, template_dir/input.nml.template and rundir/input.nml are identical. SIMPLIFY.
+  ${LINK} ${WRF_SRC_DIR}/run/* .
+  ${LINK} ${TEMPLATE_DIR}/input.nml input.nml
 
-   ${LINK} ${RUN_DIR}/WRF_RUN/* ${RUN_DIR}/advance_temp${n}/.
-   ${LINK} ${TEMPLATE_DIR}/input.nml.template ${RUN_DIR}/advance_temp${n}/input.nml
+  ${COPY} ${OUTPUT_DIR}/${initial_date}/wrfinput_d01_${gdate[1]}_${gdate[2]}_mean wrfvar_output.nc
 
-   ${COPY} ${OUTPUT_DIR}/${initial_date}/wrfinput_d01_${gdate[1]}_${gdate[2]}_mean \
-           ${RUN_DIR}/advance_temp${n}/wrfvar_output.nc
-   sleep 3
-   ${COPY} ${RUN_DIR}/add_bank_perts.ncl ${RUN_DIR}/advance_temp${n}/.
-
-   set cmd3 = "ncl 'MEM_NUM=${n}' 'PERTS_DIR="\""${PERTS_DIR}"\""' ${RUN_DIR}/advance_temp${n}/add_bank_perts.ncl"
-   ${REMOVE} ${RUN_DIR}/advance_temp${n}/nclrun3.out
-          cat >!    ${RUN_DIR}/advance_temp${n}/nclrun3.out << EOF
-          $cmd3
+  ### perturb initial conditions using pert_bank
+  sleep 3
+  ${REMOVE} nclrun3.out
+  cat >! nclrun3.out << EOF
+ncl 'NUM_PERT=${NUM_PERT}' 'PERT_BANK="${PERT_BANK_DIR}"' ${SHELL_SCRIPTS_DIR}/add_bank_perts.ncl
 EOF
-   echo $cmd3 >! ${RUN_DIR}/advance_temp${n}/nclrun3.out.tim   # TJH replace cat above
 
-   cat >! ${RUN_DIR}/rt_assim_init_${n}.csh << EOF
+  ### generate run script for each member
+  if ( -e first_adv_${n}.csh )  ${REMOVE} first_adv_${n}.csh
+  touch first_adv_${n}.csh
+
+  ##job_submit script header
+  if ( $SUPER_PLATFORM == 'cheyenne' ) then
+    cat >> first_adv_${n}.csh << EOF
 #!/bin/csh
-#=================================================================
-#PBS -N first_advance_${n}
+#PBS -N first_adv_${n}
 #PBS -j oe
 #PBS -A ${CNCAR_GAU_ACCOUNT}
 #PBS -l walltime=${CADVANCE_TIME}
 #PBS -q ${CADVANCE_QUEUE}
-#PBS -m ae
-#PBS -M ${CEMAIL}
 #PBS -l select=${CADVANCE_NODES}:ncpus=${CADVANCE_PROCS}:mpiprocs=${CADVANCE_MPI}
-#=================================================================
+module load ncl/6.6.2
+EOF
+  endif
 
-   echo "rt_assim_init_${n}.csh is running in `pwd`"
-
-   cd ${RUN_DIR}/advance_temp${n}
-
-   if (-e wrfvar_output.nc) then
-      echo "Running nclrun3.out to create wrfinput_d01 for member $n at `date`"
-
-      chmod +x nclrun3.out
-      ./nclrun3.out >& add_perts.out
-
-      if ( -z add_perts.err ) then
-         echo "Perts added to member ${n}"
-      else
-         echo "ERROR! Non-zero status returned from add_bank_perts.ncl. Check ${RUN_DIR}/advance_temp${n}/add_perts.err."
-         cat add_perts.err
-         exit
-      endif
-
-      ${MOVE} wrfvar_output.nc wrfinput_d01
-   endif
-
-   cd $RUN_DIR
-
-   echo "Running first_advance.csh for member $n at `date`"
-   ${SHELL_SCRIPTS_DIR}/first_advance.csh $initial_date $n $paramfile
-
+  ###job_submit script execute commands
+  cat >> first_adv_${n}.csh << EOF
+cd ${RUN_DIR}/advance_temp${n}
+chmod +x nclrun3.out
+./nclrun3.out >& add_perts.out
+${MOVE} wrfvar_output.nc wrfinput_d01
+cd $RUN_DIR
+${SHELL_SCRIPTS_DIR}/first_advance.csh $initial_date $n ${SHELL_SCRIPTS_DIR}/$paramfile
 EOF
 
-   qsub ${RUN_DIR}/rt_assim_init_${n}.csh
+  ${JOB_SUBMIT} first_adv_${n}.csh
 
-   @ n++
+  @ n++
 
 end
 

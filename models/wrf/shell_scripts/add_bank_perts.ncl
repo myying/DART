@@ -7,24 +7,17 @@
 ; state for the target lateral boundaries.
 
 begin
-
-  err = NhlGetErrorObjectId()
-  setvalues err
-    "errFileName" : "add_perts.err"
-  end setvalues
-
- ens_mem_num = ""+MEM_NUM
- pert_bank_path = PERTS_DIR
+ pert_bank_path = PERT_BANK
+ bank_size = NUM_PERT
 
 ; perturbation scaling:
- scale_T = 1.3
- scale_U = 1.3
- scale_V = 1.3
- scale_Q = 1.3
- scale_M = 0.6
+ scale_T = 0.2
+ scale_U = 0.2
+ scale_V = 0.2
+ scale_Q = 0.2
+ scale_M = 0.2
 
 ; for random pert, pick from larger bank
- bank_size = 100
  con  = bank_size / 32766.0      ; 32766.0 forces a 0.0 to 1.0 range
 ; get a seed
  wallClock = stringtoint(systemfunc("date -u +%N"))
@@ -40,7 +33,6 @@ begin
  pert_bank_file = "pert_bank_mem_"+ens_mem_num+".nc"
  wrf_file = "wrfvar_output"+".nc"
 
- asciiwrite("mem"+MEM_NUM+"_pert_bank_num",ens_mem_num)
  print ("bank member number "+ens_mem_num)
 
  pert_fields = (/"U", "V", "T", "QVAPOR","MU"/)
@@ -49,7 +41,7 @@ begin
  pert_in = addfile(pert_bank_path+"/"+pert_bank_file,"r")
  wrf_in  = addfile(wrf_file,"w")
  do n=0,nperts-1
-  temp_w = wrf_in->$pert_fields(n)$ 
+  temp_w = wrf_in->$pert_fields(n)$
   temp_p = pert_in->$pert_fields(n)$
   temp_c = temp_w+(temp_p * pert_scale(n))
   wrf_in->$pert_fields(n)$ = temp_c
